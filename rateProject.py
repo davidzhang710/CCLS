@@ -1,6 +1,12 @@
 import streamlit as st
 import pandas as pd
 import time
+from datetime import datetime
+from openpyxl import load_workbook
+from openpyxl.styles import Alignment
+
+if 'globalList' not in st.session_state:
+    st.session_state['globalList'] = []
 
 def findHeader(df):
     newList = []
@@ -27,34 +33,127 @@ def GRIdf(df,GRI):
 st.set_page_config(layout="wide")
 st.title("Rate Table Generator")
 uploaded_file = st.file_uploader("Choose a file")
-current, proposed = st.tabs(['Current','Proposed'])
+current, proposed, accessorial = st.tabs(['Current','Proposed','Header & Accessorials'])
 with st.sidebar:
     st.title("Options Manager")
 
     if uploaded_file is not None:
-        GRI = st.slider("GRI %",0,20)
-        st.button("Apply GRI")
-        st.write("---")
-        st.checkbox("Include Standard Headers")
-        st.checkbox("Apply Standard Accessorials")
-
+        mode = st.radio("GRI Apply To All", [True, "With Condition"])
+        if mode == True:
+            GRI = st.slider("GRI %", 0, 20)
+        if mode == "With Condition":
+            st.warning("Rules must be mutually exclusive")
+            data = pd.read_excel(uploaded_file)
+            df = findHeader(data)
+            columnName = st.selectbox("Filter On Column:", list(df))
+            value = st.multiselect("Equal One Or Multiple Conditions", df[columnName].unique())
+            GRIvalue = st.text_input("GRI Value - Percentage")
+            if st.button("Add Rule"):
+                st.session_state['globalList'].append({columnName:value,"GRI":int(GRIvalue)})
+            if st.button("Clear Rules"):
+                st.session_state['globalList'] =[]
+            st.write(st.session_state['globalList'])
+            print(st.session_state['globalList'])
 if uploaded_file is not None:
     with current:
         data = pd.read_excel(uploaded_file)
         df = findHeader(data)
-        st.dataframe(df)
+        st.dataframe(df, use_container_width=True)
+
+    with accessorial:
+        agree = st.checkbox("Include Standard Headers & Accessorials")
+        if agree:
+
+            allow_editing = st.radio("Edit Terms", [False, True])
+
+            st.subheader("Headers")
+            header_data = f"""
+            Rates generated on: {datetime.now()}		
+            CCLS Rates - CFF		
+            For Customer - KV		
+            Effective Start Date: 2022-05-01		
+            Shipping Location: Brampton, ON		
+            """
+
+            if allow_editing:
+                output_header = st.text_area("Terms", value=header_data, height=200)
+            else:
+                st.text(header_data)
+
+            input_data ="""
+            Rates as outlined, are valid for thirty (30) days after issuance and subject to acceptance\n
+            Rates are presented in Canadian Dollars
+            Rates are subject to weekly posted FCA fuel surcharge in effect at the time of shipping
+            Rates as outlined apply to freight that can be easily and safely conveyed by forklift or pallet truck
+            Except for FTL, rates are applicable for $ per 100 pounds
+            Rates are applied in pounds
+            Weights are rounded up to the next pound
+            Rates are subject to a 10 pound density
+            Rates are subject to change with 30 day notice
+            Shipments weighing 10,000 Lbs. or greater are subject to FTL fuel surcharge
+            Linear Foot:  Shipments occupying 10 Ft or more of trailer space will be calculated at 1,000 Lbs. per ft.
+            Non-Stack:  Non-Stack:  Any pallet or shipping unit that is deemed as non-stackable may be subject to a height rule of 96”
+            Liability:  Calculated at $2/Lb. computed on total weight of shipment unless a higher value has been declared
+            Shipments are subject to applicable beyond and/or accessorial surcharges processed at CCLS cost +15%
+            Services are subject to carrier standard Terms and Conditions
+            """
+
+            st.subheader("Standard Terms")
+            if allow_editing:
+                output_term = st.text_area("Terms", value=input_data, height=400)
+            else:
+                st.text(input_data)
+
     with proposed:
-        if GRI == 0:
-            st.warning("Please select GRI %")
-        else:
+        if mode == True:
+            if GRI == 0:
+                st.warning("Please select GRI %")
             st.success(f'A GRI of {GRI}% have been applied.')
             downloaddf = GRIdf(df,GRI)
             if st.button("Save Data"):
                 with st.spinner(text="In progress..."):
-                    time.sleep(3)
-                    downloaddf.to_excel("Rate Table.xlsx", index = False, header = True)
+                    time.sleep(1)
+                    downloaddf.to_excel("Rate Table.xlsx", index = False, header = True, sheet_name="rate")
+                    if agree:
+                        wb2 = load_workbook("Rate Table.xlsx")
+                        wb2.create_sheet("additional info")
+                        wb2['additional info'].cell(1,1).value = header_data
+                        wb2['additional info'].cell(1,1).alignment=Alignment(wrap_text=True)
+                        wb2['additional info'].cell(2,1).value = input_data
+                        wb2['additional info'].cell(2,1).alignment=Alignment(wrap_text=True)
+                        wb2.save("Rate Table.xlsx")
+
                     with open("Rate Table.xlsx", 'rb') as my_file:
-                        st.download_button(label='Download', data=my_file, file_name='Rate Table.xlsx',
-                                       mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-            st.dataframe(downloaddf)
+                        st.download_button(label='Download', data=my_file, file_name='Rate Table.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            st.dataframe(downloaddf, use_container_width=True)
+        elif mode == "With Condition":
+            st.write("Current Parsing Condition:")
+            df = findHeader(data)
+            dfList = []
+            if not st.session_state['globalList']:
+                st.warning("Please add condition for filter:")
+            else:
+                st.write(st.session_state['globalList'])
+                for each in st.session_state['globalList']:
+                    columnName = next(iter(each))
+                    dfpiece = df.loc[df[columnName].isin(each[columnName])]
+                    dfpiece = GRIdf(dfpiece,each['GRI'])
+                    dfList.append(dfpiece)
+                finaldf = pd.concat(dfList)
+
+                if st.button("Save Data"):
+                    with st.spinner(text="In progress..."):
+                        time.sleep(1)
+                        finaldf.to_excel("Rate Table.xlsx", index=False, header=True, sheet_name="rate")
+                        if agree:
+                            wb2 = load_workbook("Rate Table.xlsx")
+                            wb2.create_sheet("additional info")
+                            wb2['additional info'].cell(1, 1).value = header_data
+                            wb2['additional info'].cell(row=15, column=1).value = input_data
+                            wb2.save("Rate Table.xlsx")
+                        with open("Rate Table.xlsx", 'rb') as my_file:
+                            st.download_button(label='Download', data=my_file, file_name='Rate Table.xlsx',
+                                               mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+                st.dataframe(finaldf, use_container_width=True)
 
