@@ -17,9 +17,6 @@ if 'input_data' not in st.session_state:
 if 'header_data' not in st.session_state:
     st.session_state['header_data'] = ""
 
-if 'GRI' not in st.session_state:
-    st.session_state['GRI'] = 0
-
 
 # find out what the index should be in a giving dataframe
 # Return the index of the row that should be the header
@@ -51,8 +48,8 @@ def findHeader(df):
 def GRIdf(df,GRI):
     for i in range(0, len(df.index) - 1):
         for index, cell in enumerate(df.iloc[i]):
-            if type(cell) is int or type(cell) is float:
-                df.iat[i, index] = round(cell * (1+GRI/100), 2)
+            if type(cell) is not str:
+                df.iat[i, index] = round(float(cell) * (1+GRI/100), 2)
     return df
 
 st.set_page_config(layout="wide")
@@ -66,6 +63,7 @@ with st.sidebar:
         mode = st.radio("GRI Apply To All", [True, "With Condition"])
         if mode == True:
             GRI = st.number_input("GRI %", step=0.01)
+            st.session_state['GRI'] = GRI
         if mode == "With Condition":
             st.warning("Rules must be mutually exclusive")
             data = pd.read_excel(uploaded_file)
