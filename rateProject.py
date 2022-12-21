@@ -8,7 +8,28 @@ from openpyxl.styles import Alignment
 if 'globalList' not in st.session_state:
     st.session_state['globalList'] = []
 
+if 'file_name' not in st.session_state:
+    st.session_state['file_name'] = ""
+
+if 'input_data' not in st.session_state:
+    st.session_state['input_data'] = ""
+
+if 'header_data' not in st.session_state:
+    st.session_state['header_data'] = ""
+
+if 'GRI' not in st.session_state:
+    st.session_state['GRI'] = 0
+
+
+# find out what the index should be in a giving dataframe
+# Return the index of the row that should be the header
 def findHeader(df):
+    old_header = df.columns.tolist()
+    none_empty_cell = 0
+    for each in old_header:
+        if "Unnamed" not in each:
+            none_empty_cell += 1
+    print(none_empty_cell)
     newList = []
     for i in range(0,len(df.index)-1):
         counter = 0
@@ -19,15 +40,19 @@ def findHeader(df):
     minVal = min(newList)
     firstindex = newList.index(minVal)
     lastindex = len(newList) - newList[::-1].index(minVal)
-    df.columns = df.iloc[firstindex]
-    df = df[firstindex+1:lastindex]
+    if len(df.iloc[firstindex]) == none_empty_cell:
+        df.columns = old_header
+        df = df[firstindex:lastindex]
+    else:
+        df.columns = df.iloc[firstindex]
+        df = df[firstindex+1:lastindex]
     return df
 
 def GRIdf(df,GRI):
     for i in range(0, len(df.index) - 1):
         for index, cell in enumerate(df.iloc[i]):
             if type(cell) is int or type(cell) is float:
-                df.iat[i, index] = cell * (1+GRI/100)
+                df.iat[i, index] = round(cell * (1+GRI/100), 2)
     return df
 
 st.set_page_config(layout="wide")
@@ -40,7 +65,7 @@ with st.sidebar:
     if uploaded_file is not None:
         mode = st.radio("GRI Apply To All", [True, "With Condition"])
         if mode == True:
-            GRI = st.slider("GRI %", 0, 20)
+            GRI = st.number_input("GRI %", step=0.01)
         if mode == "With Condition":
             st.warning("Rules must be mutually exclusive")
             data = pd.read_excel(uploaded_file)
@@ -67,8 +92,7 @@ if uploaded_file is not None:
             allow_editing = st.radio("Edit Terms", [False, True])
 
             st.subheader("Headers")
-            header_data = f"""
-            Rates generated on: {datetime.now()}		
+            header_data = f"""		
             CCLS Rates - CFF		
             For Customer - KV		
             Effective Start Date: 2022-05-01		
@@ -77,6 +101,7 @@ if uploaded_file is not None:
 
             if allow_editing:
                 output_header = st.text_area("Terms", value=header_data, height=200)
+                st.session_state['header_data'] = output_header
             else:
                 st.text(header_data)
 
@@ -101,6 +126,7 @@ if uploaded_file is not None:
             st.subheader("Standard Terms")
             if allow_editing:
                 output_term = st.text_area("Terms", value=input_data, height=400)
+                st.session_state['input_data'] = output_term
             else:
                 st.text(input_data)
 
@@ -109,22 +135,25 @@ if uploaded_file is not None:
             if GRI == 0:
                 st.warning("Please select GRI %")
             st.success(f'A GRI of {GRI}% have been applied.')
-            downloaddf = GRIdf(df,GRI)
+            downloaddf = GRIdf(df, GRI)
+            file_name = st.text_input(
+                "Please Enter Name of the File 👇",
+            )
+            st.session_state["file_name"] = file_name
             if st.button("Save Data"):
                 with st.spinner(text="In progress..."):
-                    time.sleep(1)
                     downloaddf.to_excel("Rate Table.xlsx", index = False, header = True, sheet_name="rate")
                     if agree:
                         wb2 = load_workbook("Rate Table.xlsx")
                         wb2.create_sheet("additional info")
-                        wb2['additional info'].cell(1,1).value = header_data
+                        wb2['additional info'].cell(1,1).value = st.session_state['header_data']
                         wb2['additional info'].cell(1,1).alignment=Alignment(wrap_text=True)
-                        wb2['additional info'].cell(2,1).value = input_data
+                        wb2['additional info'].cell(2,1).value = st.session_state['input_data']
                         wb2['additional info'].cell(2,1).alignment=Alignment(wrap_text=True)
                         wb2.save("Rate Table.xlsx")
 
                     with open("Rate Table.xlsx", 'rb') as my_file:
-                        st.download_button(label='Download', data=my_file, file_name='Rate Table.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                        st.download_button(label='Download', data=my_file, file_name=f'{st.session_state["file_name"]}.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
             st.dataframe(downloaddf, use_container_width=True)
         elif mode == "With Condition":
             st.write("Current Parsing Condition:")
@@ -143,16 +172,14 @@ if uploaded_file is not None:
 
                 if st.button("Save Data"):
                     with st.spinner(text="In progress..."):
-                        time.sleep(1)
                         finaldf.to_excel("Rate Table.xlsx", index=False, header=True, sheet_name="rate")
                         if agree:
                             wb2 = load_workbook("Rate Table.xlsx")
                             wb2.create_sheet("additional info")
-                            wb2['additional info'].cell(1, 1).value = header_data
-                            wb2['additional info'].cell(row=15, column=1).value = input_data
+                            wb2['additional info'].cell(1, 1).value = st.session_state['header_data']
+                            wb2['additional info'].cell(row=15, column=1).value = st.session_state['input_data']
                             wb2.save("Rate Table.xlsx")
                         with open("Rate Table.xlsx", 'rb') as my_file:
                             st.download_button(label='Download', data=my_file, file_name='Rate Table.xlsx',
                                                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-
                 st.dataframe(finaldf, use_container_width=True)
